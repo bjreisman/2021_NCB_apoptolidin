@@ -1,0 +1,10 @@
+compartment,.y.,group1,group2,n1,n2,statistic,p,p.adj,p.adj.signif
+Blood,chimerism,Vehicle,AmmoA_0.1,5,7,35,0.003,0.008,**
+Blood,chimerism,Vehicle,AmmoA_0.03,5,7,29,0.073,0.146,ns
+Blood,chimerism,AmmoA_0.03,AmmoA_0.1,7,7,36,0.165,0.165,ns
+BM,chimerism,Vehicle,AmmoA_0.1,5,7,35,0.003,0.007,**
+BM,chimerism,Vehicle,AmmoA_0.03,5,7,27,0.149,0.149,ns
+BM,chimerism,AmmoA_0.03,AmmoA_0.1,7,7,47,0.002,0.007,**
+SPL,chimerism,Vehicle,AmmoA_0.1,5,7,29,0.073,0.22,ns
+SPL,chimerism,Vehicle,AmmoA_0.03,5,7,19,0.876,0.876,ns
+SPL,chimerism,AmmoA_0.03,AmmoA_0.1,7,7,38,0.097,0.22,ns

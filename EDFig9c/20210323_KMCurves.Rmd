@@ -1,0 +1,84 @@
+---
+title: "NSGS KM Curves"
+author: "Benjamin Reisman"
+date: "3/23/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r tox}
+library(tidyverse)
+library("survminer")
+library("survival")
+fit <- survfit(Surv(time, status) ~ sex, data = lung)
+
+ggsurvplot(fit, data = lung)
+library(readxl)
+list.files()
+tox <- readxl::read_xlsx("Ammo KM data.xlsx")
+
+survfit(Surv(time, status) ~ sex, data = lung)
+tox.tidy <- tox[2:7] %>%
+  gather(group, status, -Days) %>%
+  filter(complete.cases(.)) %>%
+  mutate(group = as.factor(group)) %>%
+  mutate(group = fct_relevel(group, "Vehicle"))
+#?fct_relevel
+tox.tidy$group
+fit <- survfit(Surv(Days, status) ~ group, data = tox.tidy)
+fit
+ggsurvplot(fit, data = tox.tidy,
+           legend = "right",
+           linetype = c(1,2,1,2,1),
+           palette = c("black", "#e41a1c", "#377eb8", "#4daf4a", "#984ea3"), 
+           size = .5,
+           legend.labs = c("Vehicle", "0.1 mg/kg M-F", "0.25 mg/kg M-F", "0.25 mg/kg M/W/F", "0.5 mg/kg M-F"),
+           ggtheme = theme_classic()+ theme(text = element_text(size = 6)), 
+           xlab = "Time (Days)")
+
+
+
+ggsave('tox_km.pdf', width = 3.5, height = 1.5, units = "in")
+```
+
+```{r tox}
+xgf <- readxl::read_xlsx("Ammo KM data.xlsx", sheet = 2)
+xgf
+xgf.tidy <- xgf[2:5] %>%
+  gather(group, status, -Days) %>%
+  filter(complete.cases(.)) %>%
+  mutate(group = as.factor(group)) %>%
+  mutate(group = fct_relevel(group, "Vehicle"))# %>%
+  filter(group %in% c("Vehicle", ".03mg/kg M-F"))
+  
+fit <- survfit(Surv(Days, status) ~ group, data = xgf.tidy)
+fit.sum <- summary(fit)
+?surv_pvalue
+surv_pvalue(
+  fit,
+  data = xgf.tidy,
+  method = "1",
+  test.for.trend = FALSE
+)
+?surv_pvalue
+ggsurvplot(fit, data = xgf.tidy,
+           legend = "right",
+           linetype = c(2,1,1),
+           palette = c("black", "#f1b6da", "#d01c8b"), 
+           size = .5,
+           legend.labs = c("Vehicle", "0.03 mg/kg", "0.10 mg/kg"),
+           pval = T,
+           pval.size	 = 2, 
+           ggtheme = theme_classic()+ theme(text = element_text(size = 6)), 
+           xlab = "Time (Days)")
+
+
+
+ggsave('xgf_km.pdf', width = 3, height = 1.5, units = "in")
+```

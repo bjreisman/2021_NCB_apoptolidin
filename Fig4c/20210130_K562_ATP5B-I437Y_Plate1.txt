@@ -1,0 +1,29 @@
+##BLOCKS= 2          
+
+Default Protocol/Tutorial 1
+
+If you are new to SOFTmax PRO, follow this tutorial (Tutorial 1) as outlined in Chapter 10 of the SOFTmax PRO User's Manual. This protocol contains this Introduction and one Experiment section. 
+You can also read  Chapter 4, "Reading Microplates Using Absorbance Instruments," and Chapter 7, "Displaying and Analyzing Data Using Absorbance Instruments," and refer to the Formula Reference Guide to utilize the full potential of SOFTmax PRO. 
+
+Experiment #1:
+Quantitative Endpoint assay with Standards and Unknowns (with and without dilution factor). The unknowns are interpolated from a standard curve.
+
+If You Are Familiar with SOFTmax PRO, Customize This Default Protocol:
+1. Delete any sections you do not want (for example, select the CuvetteSet#1 and delete it through the Edit menu).
+2. Make any changes you wish to the Instrument Settings by pressing [Setup] (it is assumed you have an instrument connected).
+3. Click the [Template] button and  assign any default or new groups as necessary (you can also select replicates there).
+4. Select the desired Reduction and Display (Raw vs. Reduced) parameters.
+5. Save this default protocol with the name Default Protocol in the same folder as the SOFTmax PRO application (you will be asked if you wish to replace the existing default protocol -- choose Yes). This modified protocol will now launch each time you open SOFTmax PRO. A copy of the original default protocol can be found in the Tutorial folder if needed.
+Plate:	Plate#1	1.3	PlateFormat	Endpoint	Absorbance	Raw	FALSE	1						1	560	1	12	96	1	8	None	
+	Temperature(¡C)	1	2	3	4	5	6	7	8	9	10	11	12		
+	24.50	0.1651	0.1613	0.1546	0.2389	0.1999	0.2093	0.1607	0.1573	0.1614	0.0766	0.0752	0.0757		
+		0.2016	0.1773	0.1804	0.2461	0.2158	0.2221	0.1625	0.1709	0.1517	0.0686	0.0674	0.0628		
+		0.2335	0.2415	0.2188	0.2747	0.2348	0.2262	0.1527	0.1494	0.1544	0.0796	0.0894	0.0772		
+		0.3021	0.2676	0.2616	0.2652	0.2412	0.2502	0.18	0.1543	0.1631	0.1298	0.1289	0.1097		
+		0.2368	0.2485	0.2807	0.2925	0.2219	0.231	0.1892	0.1867	0.1939	0.2297	0.243	0.2257		
+		0.2457	0.2864	0.2867	0.3047	0.2524	0.2586	0.251	0.2354	0.2509	0.2407	0.2644	0.2729		
+		0.2695	0.2679	0.2944	0.2504	0.2483	0.2592	0.2715	0.2716	0.2703	0.2777	0.2917	0.2841		
+		0.3029	0.2775	0.2602	0.2825	0.276	0.2566	0.2863	0.2787	0.2834	0.285	0.3096	0.2919		
+		
+~End
+Copyright © 2003 Molecular Devices. All rights reserved.

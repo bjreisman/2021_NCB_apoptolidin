@@ -1,0 +1,296 @@
+---
+title: "Cytotoxicity analysis pipeline for 96 well plates"
+author: "Benjamin Reisman"
+date: !r Sys.Date()
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(platetools)
+library(drc)
+
+list.files()
+exp_name <- "20210116_mv411-Crispr" #no spaces or periods pls
+
+```
+
+
+```{r generate platemap}
+rep(LETTERS[1:8], times = 12)
+platemap <- tibble(
+   row = rep(LETTERS[1:8], times = 12), #A:H repeated 12 times
+   col = rep(1:12, each = 8), # 1:12, each one repeated 8 times
+   well = paste0(row, str_pad(col, 2, 'left', "0")), #put the row and col together, making sure to left pad the numbers so 9 comes before 10 
+   compound = rep(rep(
+    c("Apoptolidin A",
+      "Ammocidin A",
+      "Oligomycin A",
+      "Puromycin"), #which compound goes in each column
+    each = 8), times = 3), 
+    conc = rep(c(c(sqrt(10)*100/sqrt(10)^(0:6), 0),
+             c(sqrt(10)*100/sqrt(10)^(0:6), 0),#7 serial dilutions + 0
+             c(sqrt(10)*10/sqrt(10)^(0:6), 0), # serial dilutions for 7:9
+             c(sqrt(10)*10000/sqrt(10)^(0:6), 0)), times = 3)) %>%  #which cell lines
+  mutate(conc = signif(conc, 3)) #round doses to three sig figs
+
+
+platemap
+write_csv(platemap, #the map we just made
+          paste0(exp_name, "_platemap.csv")) #writing the platemap
+```
+
+```{r read platemap}
+list.files() #find your platemap
+platemap <- read_csv("platemap.csv")
+```
+
+```{r helper functions}
+readplate <- function(filename, lines_to_skip, platemap) {
+  plate.md <- read_lines(filename,
+             skip = lines_to_skip-1, 
+             n_max = 1)
+  
+  wavelength <- str_split(plate.md, pattern = "\t", simplify = T)[16]
+  
+  data.raw <- 
+    read_tsv(filename, skip = lines_to_skip)[1:8, 3:14] %>%
+      print() %>%
+      mutate(row = LETTERS[1:8]) %>%
+      dplyr::select(row, everything()) %>%
+      gather(
+        col, abs, -row) %>%
+      mutate(col = as.numeric(col)) %>%
+      arrange(col, row) %>%
+      left_join(platemap) %>%
+    mutate(filename = filename)
+}
+
+plotplate <- function(tidyplate, well = "well", response = "abs") {
+  tidyplate <- as.data.frame(tidyplate)
+  edges <- tibble(Row = c(0.5,0.25, 0.25,8.75,8.75), 
+                  Column = c(0.25,0.5, 12.75, 12.75, 0.25)) #plate shaped border
+  
+  plot.i <- platetools::raw_map(
+    data = tidyplate[,response],
+                      well = tidyplate[,well], 
+                      plate = 96) + 
+    geom_polygon(data = edges, col = "black", fill = NA) + 
+    theme_minimal() + 
+    scale_fill_continuous(name = response) + 
+    theme(panel.grid = element_blank())
+  return(plot.i)
+}
+```
+
+```{r, import data}
+
+list.files(pattern = "*\\d.txt")
+mydata <- do.call("rbind", sapply(list.files(pattern = "*\\d.txt"), readplate, 17, platemap, simplify = F))  %>%
+  separate(filename, c("date", "line1", "line2", "line3", "replicate"), sep = "_") %>%
+  dplyr::select(-date) %>%
+  mutate(line = "NA",
+         line = if_else(col %in% c(1:4), line1, line), 
+         line = if_else(col %in% 5:8, line2, line), 
+         line = if_else(col %in% 9:12, line3, line)) %>%
+  mutate(replicate = substr(replicate, 1,1)) %>%
+  dplyr::select(-line1, -line2, -line3)
+
+
+mydata %>%
+  filter(line == "blank") %>%
+  summarise(abs = mean(abs))
+blank <- 
+mydata.0 <- 
+  mydata %>%
+  dplyr::filter(conc == 0) %>%
+#  dplyr::select(-compound) %>%
+  group_by(line, compound) %>%
+  summarise(abs.0 = mean(abs - 0.05))
+
+mydata.0
+line.lut <- tibble(line = unique(mydata$line)) %>%
+  arrange(line) %>%
+  mutate(line.short = c("ATP5C-L102R-C3", "ATP5C-L102R-C4","Parental"))
+
+line.lut
+```
+```{r Fig3D}
+mydata
+mydata.norm <- 
+  mydata %>%
+  left_join(mydata.0) %>%
+  mutate(abs = abs - 0.05) %>%
+  mutate(abs.norm = abs/abs.0) %>%
+  dplyr::filter(line != 'blank') %>%
+  dplyr::filter(grepl("C04|Parental", line)) %>%
+  arrange(desc(line))%>%
+  left_join(line.lut)
+
+mydata.norm %>%
+  filter(conc ==0)
+mydata.norm %>%
+  dplyr::filter(conc != 0) %>%
+  ggplot(aes(x=conc,  y = abs.norm, col = line.short)) +
+  geom_point() + 
+  geom_smooth() + 
+  facet_grid(.~compound, space = "free_x", scale = "free_x") + 
+  scale_x_log10()
+
+dev.off()
+#library(drc)
+
+#?drm
+drc.ammoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Ammocidin A"), fct = LL.4())
+
+drc.apoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Apoptolidin A"), fct =  LL.4(), 
+  separate = T)
+
+drc.olmA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Oligomycin A"), fct = LL.4(), 
+  separate = T)
+
+
+drc.puro <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Puromycin"), fct = LL.4())
+#dev.off()
+plot(drc.apoA)
+plot(drc.ammoA)
+plot(drc.olmA)
+plot(drc.puro)
+
+suffix <- "MV411-2"
+pdf(paste0(suffix, ".pdf"), #this line directs the plot to a png
+    width = 4, height = 4,
+    pointsize = 10)  #size of text (10pt)
+
+
+#mypal <- c("black", "#43a3c8")
+mypal <- palette.colors(3)
+par(mfrow = c(2,2), mar = c(4.1, 2.6, 1.1, 1.1))
+
+
+myylim <- c(0,1.3)
+myyt <- seq(myylim[1], myylim[2], by = 0.4)
+myytlab <- myyt
+myytlab[seq(length(myyt)) %% 2 == 1] <- ""
+plot(drc.ammoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+#     normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Ammocidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(10, 0.5)
+     ) 
+
+#dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+plot(drc.apoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+ #    normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     legend = F,  
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Apoptolidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(10, 0.5)
+     ) 
+
+plot(drc.olmA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+  #   normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     legend = F,  
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.01, #breakpoint for 0
+     xlab = "[Oligomycin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1, 0.5)
+     ) 
+
+
+plot(drc.puro, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 10, #breakpoint for 0
+     xlab = "[Puromycin] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1000, 0.5)
+     ) 
+
+#?plot.drc
+
+
+dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+# png("legend.png", #this line directs the plot to a png
+#     width = 4, height = 4, units = "in", #plot dimension
+#     res = 300,  #plot resolution (300 DPI)
+#     pointsize = 10)  #size of text (10pt)
+
+pdf("legend-1.pdf", #this line directs the plot to a png
+    width = 4, height = 4,
+    pointsize = 10)  #size of text (10pt)
+par(mfrow = c(2,2), mar = c(4.1, 2.6, 1.1, 1.1))
+plot(drc.puro, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+#     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 10, #breakpoint for 0
+     xlab = "[Puromycin] (nM)", #x label
+     ylab = NA, 
+        yt = c(0.2, 0.4, 0.6, 0.8,1, 1.2),
+     ytlab = c("0.2", "", "0.6", "","1.0", ""),
+     ylim = c(0.1,2),
+     legendPos = c(30000, 2)
+     ) 
+
+dev.off()
+
+
+
+```
