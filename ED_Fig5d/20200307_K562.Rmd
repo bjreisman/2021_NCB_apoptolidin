@@ -1,0 +1,232 @@
+---
+title: "K562 MTT Analysis"
+author: "Benjamin Reisman"
+date: "3/7/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r read and tidy}
+library(tidyverse)
+list.files()
+data.k562p <- 
+  read_tsv("K562-Parental.txt", skip = 28)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(21*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs))
+
+data.k562p.0 <- data.k562p %>%
+  filter(conc == 0) %>%
+  group_by(col) %>%
+  summarise(abs.0 = mean(abs))
+
+
+data.k562p.norm <- data.k562p %>%
+  left_join(data.k562p.0) %>%
+  mutate(abs.norm = abs/abs.0*100) %>%
+  mutate(line = "Parental")
+
+
+list.files()
+data.k562c05 <- 
+  read_tsv("K562-ATP5B-L441F-C105.txt", skip = 28)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(21*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs)) %>%
+  mutate(line = "ATP5B-L394F")
+
+
+
+data.k562c05.0 <- data.k562c05 %>%
+  filter(conc == 0) %>%
+  group_by(col) %>%
+  summarise(abs.0 = mean(abs))
+
+data.k562c05.norm <- data.k562c05 %>%
+  left_join(data.k562c05.0) %>%
+  mutate(abs.norm = abs/abs.0*100)
+
+data.k562p.norm %>%
+  mutate(line = "Parental")
+
+mydata.norm
+mydata.norm <- bind_rows(data.k562p.norm, data.k562c05.norm) %>%
+  mutate(abs.norm = abs.norm/100)
+  
+library(drc)
+
+```
+
+```{r}
+drc.ammoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Ammocidin A"), fct = LL.4())
+
+drc.apoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Apoptolidin A"), fct =  LL.4(), 
+  separate = T)
+
+drc.olmA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Oligomycin A"), fct = LL.4(), 
+  separate = T)
+
+
+drc.puro <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Puromycin"), fct = LL.4())
+#dev.off()
+plot(drc.apoA)
+plot(drc.ammoA)
+plot(drc.olmA)
+plot(drc.puro)
+
+mydata.norm <- mydata.norm %>%
+  arrange(desc(line))
+suffix <- "K562-ATP5B-L394F"
+dev.off()
+pdf(paste0(suffix, ".pdf"), #this line directs the plot to a png
+    width = 5, height = 1.25,
+    pointsize = 7)  #size of text (10pt)
+
+
+#mypal <- c("black", "#43a3c8")
+mypal <- palette.colors(2)
+par(mfrow = c(1,4), mar = c(4.1, 2.6, 1.1, 1.1))
+
+
+myylim <- c(0,1.2)
+myyt <- seq(myylim[1], myylim[2], by = 0.2)
+myytlab <- myyt
+myytlab[seq(length(myyt)) %% 2 == 1] <- ""
+plot(drc.ammoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Ammocidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(10, 0.5)
+     ) 
+
+#dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+plot(drc.apoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+#     legend = F,  
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Apoptolidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(30, 0.6)
+     ) 
+
+plot(drc.olmA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     legend = F,  
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.01, #breakpoint for 0
+     xlab = "[Oligomycin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1, 0.5)
+     ) 
+
+
+plot(drc.puro, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 10, #breakpoint for 0
+     xlab = "[Puromycin] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1000, 0.5)
+     ) 
+#?plot.drc
+
+
+dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+
+```

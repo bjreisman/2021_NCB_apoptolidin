@@ -1,0 +1,150 @@
+---
+title: "Apoptolidin A"
+author: "Benjamin Reisman"
+date: "1/20/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r read and tidy}
+library(tidyverse)
+library(drc)
+
+data.ammo <- NULL
+data.ammo
+  data.ammo <- read_tsv("MV411_AmmoA_AmmoAPA.txt", skip = 2)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(row, col) %>%
+  mutate(compound = rep(
+    c(
+      "NA",
+      "Ammocidin A",
+      "Ammocidin A",
+      "Ammocidin A",
+      "Ammocidin A-PA",
+      "NA",
+      "Ammocidin A-PA",
+      "NA"
+    ),
+    each = 12), 
+    conc = rep(c(NA, c(1000 / sqrt(10)^c(0:8)), 0, NA), 
+               times = 8))
+    
+data.apo <- 
+  read_tsv("MV411_ApoA_ApoAPA.txt", skip = 2)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(row, col) %>%
+  mutate(compound = rep(
+    c(
+      "NA",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A-PA",
+      "Apoptolidin A-PA",
+      "Apoptolidin A-PA",
+      "NA"
+    ),
+    each = 12), 
+    conc = rep(c(NA, c(1000 / sqrt(10)^c(0:8)), 0, NA), 
+               times = 8))
+data.apo
+
+data.apoH <- 
+  read_tsv("MV411_ApoH_ApoHPA.txt", skip = 2)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(row, col) %>%
+  mutate(compound = rep(
+    c(
+      "NA",
+      "Apoptolidin H",
+      "Apoptolidin H",
+      "Apoptolidin H",
+      "Apoptolidin H-PA",
+      "Apoptolidin H-PA",
+      "Apoptolidin H-PA",
+      "NA"
+    ),
+    each = 12), 
+    conc = rep(c(NA, c(1000 / sqrt(10)^c(0:8)), 0, NA), 
+               times = 8))
+
+lookup <- tibble(compound = c("Apoptolidin A", "Apoptolidin A-PA", "Ammocidin A"), 
+                 compound_n = c("1", "2", "3"))
+data.tidy <- rbind(data.apo, data.apoH, data.ammo) %>%
+  left_join(lookup)
+
+
+
+data.crc <- data.tidy %>%
+#  filter(compound %in% c("Apoptolidin A", "Apoptolidin A-PA", "Ammocidin A")) %>%
+  filter(!is.na(conc)) %>%
+  filter(compound != "NA")
+
+data.crc %>%
+  ggplot(aes(x=conc, y = abs)) + 
+  geom_point() + 
+  geom_smooth() + 
+  scale_x_log10() + 
+  facet_wrap(~compound)
+
+data.crc
+
+
+library(drc)
+
+data.crc
+model.drm <- drm (abs ~ conc, compound,
+                  data = data.crc,
+                  fct = LL.4())
+drc::ED(model.drm, 50)
+e(model.drm)
+plot(model.drm, type = "bars")
+
+
+mypallete <- c("#5e3c99", "#b2abd2", "#e66101")
+svglite::svglite("Fig1B.svg", width = 2.5, height = 1.75, pointsize = 7)
+par(mar = c(4,4,1,1) + 0.1)
+#?par
+plot(model.drm,
+     type = "average",
+     log = "x",
+     pch = 1,
+     xlab = "Dose (nM)", 
+     ylab =  expression("Viability"),
+     col = T,
+#     col = mypallete,
+     normal = T, 
+    # lty = 1, 
+     # ylim = c(0,ymax), 
+     legend = T,
+     xt = c(1000 / sqrt(10)^c(0:9)),
+     yt = c(0.0 ,0.2, 0.4, 0.6, 0.8, 1.0, 1.2), 
+     ytlab = c(0,"", "", "", "", 100, ""),
+     xtlab = c("1000", "", "100", "", "10","", "1", "", "0.1"), 
+     bp = 0.03,
+     broken = T)
+
+dev.off()
+
+```

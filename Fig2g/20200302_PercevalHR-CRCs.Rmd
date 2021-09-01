@@ -1,0 +1,115 @@
+---
+title: "Perceval HR Concentration Response Cruves"
+author: "Benjamin Reisman"
+date: "3/2/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r read and tidy}
+library(debarcoder)
+library(flowCore)
+library(cytotidyr)
+library(tidyverse)
+library(CytobankAPI)
+library(scales)
+library(flowWorkspace)
+library(ncdfFlow)
+library(CytoML)
+
+
+acs <- list.files(recursive = T, pattern = "acs")
+
+ce <- open_cytobank_experiment(acs)
+
+transformers <- ce_get_transformations(ce)
+mycomps <- ce_get_compensations(ce)
+gs <- CytoML::cytobank_to_gatingset(ce)
+
+cs <- gs_pop_get_data(gs, "Live", inverse.transform = T)
+transforms <- CytoExploreR::cyto_transform_extract(transformers)
+cs <- transform(cs, transforms)
+
+fs <-cytoset_to_flowSet(cs)
+
+mydata <- as.data.frame(fs) %>%
+  as_tibble() %>%
+  left_join(pData(fs))
+
+mydata
+#mydata
+doses.lut <- tibble(
+  Conditions = rep(c("ApoA", "AmmoA", "OlmA"), each = 8),
+  Doses = rep(c(
+    "1", "2", "3", "4", "5", "6", "7", "008"
+  ), times = 3),
+  Doses.numeric = c(
+    c(sqrt(10) * 100 / sqrt(10) ^ (0:6), 0),
+    c(sqrt(10) * 100 / sqrt(10) ^ (0:6), 0),
+    c(sqrt(10) * 100 / sqrt(10) ^ (2:8), 0)
+  )
+) %>%
+  mutate(Dose.numeric = signif(Doses.numeric, 2))
+
+
+
+mydata.summarized <- 
+  mydata %>%
+  dplyr::filter(!is.na(Individuals)) %>%
+  left_join(doses.lut) %>%
+  mutate(doses.fct = as.factor(Dose.numeric)) %>%
+  mutate("ATP.ADP" =`YFP-A` - `AmCyan-A`) %>%
+  group_by(Dose.numeric, Individuals, Conditions) %>%
+  summarise(ATP.ADP = mean(ATP.ADP))
+
+mydata.summarized %>%
+  dplyr::filter(Dose.numeric != 0) %>%
+  ggplot(aes(x=Dose.numeric, y = ATP.ADP, col = Conditions)) + 
+  geom_point()+ 
+  scale_x_log10()
+
+
+
+library(drc)
+
+model.C16 <- drm(ATP.ADP ~ Dose.numeric, Conditions,
+                  data = mydata.summarized %>%
+                    dplyr::filter(Individuals == "C16"),
+                  fct = LL.4())
+
+model.C17 <- drm(ATP.ADP ~ Dose.numeric, Conditions,
+                  data = mydata.summarized %>%
+                    dplyr::filter(Individuals == "C17"),
+                  fct = LL.4())
+
+
+pdf("Perceval-C17-4.pdf", width = 2, height = 1.6, 
+    pointsize = 5)
+#?par
+#bltr
+par(mar = c(5.1, 5.1, 2.1, 2.1) ) # Set the margin on all sides to 2
+mypal <- c("#c51b7d", "#4e9342", "#d76127")
+
+#?plot.drc
+plot(model.C17, col = mypal, 
+     broken = T,
+     bp = 0.01, 
+     xlab = "Dose(nM)", 
+     ylab = "ATP:ADP [PercevalHR]\n(Ex:488/Ex:405, Em:525)", 
+     xtsty = "standard", 
+     legendPos = c(0.3, 0.8))
+
+
+dev.off()
+```

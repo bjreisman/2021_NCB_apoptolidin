@@ -1,0 +1,202 @@
+---
+title: "TMT-6 MV411 Apoptolidin A Pulldown"
+author: "Benjamin Reisman"
+date: '`r format(Sys.Date(), "%Y-%B-%d")`'
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(MSnbase)
+library(readr)
+library(DEP)
+library(ggrepel)
+
+```
+
+
+
+
+```{r defining the expirment}
+experimental_design <-
+  tibble(
+    label = c(
+      "Vehicle_1",
+      "Probe_1",
+      "Competition_1",
+      "Vehicle_2",
+      "Probe_2",
+      "Competition_2"
+    )
+  ) %>%
+  separate(label, c("condition", "replicate"), remove = FALSE)
+
+
+```
+
+```{r import and tidy}
+data.tmt <- read_tsv("20190506_Reissman_Bachmann_Apo_TMT6plex_Exp03-08__Proteins.txt" )
+
+#write_tsv(data.tmt, "Data1_ApoA-PA_TMT6_MV411-proteins.tsv")
+
+data.tidy <- data.tmt %>%
+  mutate(contaminant = grepl("contaminant", Accession)) %>%
+  mutate(contaminant = if_else(grepl("KRT", `Gene Symbol`), TRUE, FALSE)) %>%
+  dplyr::filter(contaminant == FALSE) %>%
+  dplyr::filter(!is.na(`Gene Symbol`))
+
+
+data.unique <- make_unique(data.tidy, "Gene Symbol", "Accession", delim = ";")
+
+TMT_columns <-
+  grep("Abundances", colnames(data.unique)) # get LFQ column numbers
+
+colnames(data.unique)[TMT_columns] <-
+  paste("TMT", experimental_design$label, sep = ".")
+
+data.unique[TMT_columns]
+data.unique <- data.unique %>%
+  dplyr::filter(!apply(data.unique[TMT_columns], 1, function(vec) {
+    any(is.na(vec))
+  }))
+
+data.unique
+```
+
+```{r run DEP}
+data_se<- make_se(data.unique, TMT_columns, experimental_design)
+#data_se@assays@data[[1]]
+data_norm <- normalize_vsn(data_se)
+#meanSdPlot(data_norm)
+plot_normalization(data_se, data_norm)
+#?DEP::test_diff
+data_diff <- test_diff(data_norm, type = "all")
+dep <- add_rejections(data_diff, alpha = 0.05, lfc = 2)
+#?DEP::add_rejections
+
+plot_volcano(dep, contrast = "Probe_vs_Competition", label_size = 2, add_names = TRUE, adjusted = TRUE)
+plot_volcano(dep, contrast = "Vehicle_vs_Probe", label_size = 2, add_names = TRUE, adjusted = TRUE)
+plot_volcano(dep, contrast = 'Vehicle_vs_Competition', label_size = 2, add_names = TRUE, adjusted = TRUE)
+
+
+dep_tbl <- get_results(dep)
+write_csv(dep_tbl, "dep_output.csv")
+dep_tbl
+```
+
+```{r make plots}
+
+p.val.cut <- 0.05
+ratio.cut <- 1
+plot.tbl <- dep_tbl %>%  
+  mutate(accent =
+           if_else((Probe_vs_Competition_p.adj < p.val.cut &
+             abs(Probe_vs_Competition_ratio) > ratio.cut
+             ), 
+              TRUE, FALSE))
+plot.tbl %>%
+  ggplot(aes(x=Probe_vs_Competition_ratio, y = -log10(Probe_vs_Competition_p.adj), 
+             col = accent)) + 
+  geom_point(alpha = 0.25, size= 0.75) + 
+  geom_vline(xintercept = 0) + 
+  geom_vline(xintercept = c(-ratio.cut, ratio.cut), linetype = 2, color = "grey40") +   
+  geom_hline(yintercept = -log10(p.val.cut), linetype = 2, color = "grey40") +
+  scale_color_manual(values = c("grey60", "dodgerblue3"), guide = F) + 
+  geom_text_repel(data = plot.tbl %>%
+              dplyr::filter(accent),
+            aes(label = name),
+            hjust = 0.5, 
+            color = "dodgerblue3", 
+            size = 2.5) + 
+  annotate("text", x = 3, y = -log10(p.val.cut), label = "Probe", 
+            vjust = -0.2, hjust = 1, size = 2.5) + 
+  annotate("text", x = -3, y = -log10(p.val.cut), label = "Comp.", 
+           vjust = -0.2, hjust = 0, size = 2.5) +
+  scale_x_continuous(limits = c(-3,3), breaks = c(-3,-2,-1,0,1,2,3)) + 
+  labs(x = expression("Log"[2]*"(Enrichment)"), 
+       y = expression("-Log"[10]*"(adj.p.value)")) + 
+  theme_bw() + 
+  theme(panel.grid = element_blank(), 
+        text = element_text(size = 10, color = 'black'))
+
+
+
+ggsave("volcano_probe_vs_competitor_3in_2.png", width = 2, height = 2, units = "in", dpi  = 300)
+
+
+plot.tbl <- dep_tbl %>%  
+  mutate(accent =
+           if_else((Vehicle_vs_Competition_p.adj < p.val.cut &
+             abs(Vehicle_vs_Competition_ratio) > ratio.cut), 
+              TRUE, FALSE))
+plot.tbl %>%
+  ggplot(aes(x=-Vehicle_vs_Competition_ratio, y = -log10(Vehicle_vs_Competition_p.adj), 
+             col = accent)) + 
+  geom_point(alpha = 0.25, size= 0.75) + 
+  geom_vline(xintercept = 0) + 
+  geom_vline(xintercept = c(-ratio.cut, ratio.cut), linetype = 2, color = "grey40") +   
+  geom_hline(yintercept = -log10(p.val.cut), linetype = 2, color = "grey40") +
+  scale_color_manual(values = c("grey60", "dodgerblue3"), guide = F) + 
+  geom_text_repel(data = plot.tbl %>%
+              dplyr::filter(accent),
+            aes(label = name),
+            hjust = 0.5, 
+            color = "dodgerblue3", 
+            size = 2) + 
+  annotate("text", x = 3.5, y = -log10(p.val.cut), label = "Comp.", 
+            vjust = -0.2, hjust = 1, size = 2) + 
+  annotate("text", x = -3.5, y = -log10(p.val.cut), label = "Veh.", 
+           vjust = -0.2, hjust = 0, size = 2) +
+  scale_x_continuous(limits = c(-3.5,3.5), breaks = c(-3,-2,-1,0,1,2,3)) + 
+  labs(x = expression("Log"[2]*"(Enrichment)"), 
+       y = expression("-Log"[10]*"(adj.p.value)")) + 
+  theme_bw() + 
+  theme(panel.grid = element_blank(), 
+        text = element_text(size = 10, color = 'black'))
+
+
+ggsave("volcano_competitor_vs_vehicle_2in_2.png", width = 2, height = 2, units = "in", dpi  = 300)
+
+
+plot.tbl <- dep_tbl %>%  
+  mutate(cond1 = Vehicle_vs_Probe_p.adj < 0.05, 
+         cond2 = abs(Vehicle_vs_Probe_ratio) > 1,
+        accent =
+           if_else((Vehicle_vs_Probe_p.adj < 0.05 &
+             abs(Vehicle_vs_Probe_ratio) > 1), 
+              TRUE, FALSE))
+
+
+plot.tbl %>%
+  ggplot(aes(x=-Vehicle_vs_Probe_ratio, y = -log10(Vehicle_vs_Probe_p.adj), 
+             col = accent)) + 
+  geom_point() + 
+  geom_vline(xintercept = 0) + 
+  geom_vline(xintercept = c(-1, 1), linetype = 2, color = "grey40") +   
+  geom_hline(yintercept = -log10(0.05), linetype = 2, color = "grey40") +
+  scale_color_manual(values = c("grey60", "dodgerblue"), guide = F) + 
+  geom_text_repel(data = plot.tbl %>%
+              dplyr::filter(accent),
+            aes(label = name), 
+            hjust = 1, 
+            color = "dodgerblue") + 
+  annotate("text", x = 5, y = -log10(0.05), label = "Probe", 
+            vjust = -0.2, hjust = 1) + 
+  annotate("text", x = -5, y = -log10(0.05), label = "Vehicle", 
+           vjust = -0.2, hjust = 0) +
+  scale_x_continuous(limits = c(-5,5), breaks = c(-4,-2,0,2,4)) + 
+  labs(x = expression("Log"[2]*"(Enrichment)"), 
+       y = expression("-Log"[10]*"(adj.p.value)")) + 
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave("volcano_probe_vs_vehicle_4in_2.png", width = 4, height = 4, units = "in", dpi  = 300)
+```

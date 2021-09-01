@@ -1,0 +1,361 @@
+---
+title: "S. cerevisiae is not sensitive to Apoptolidin A"
+author: "Benjamin Reisman"
+date: "6/8/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r read and tidy}
+library(tidyverse)
+list.files()
+data.c16 <- 
+  read_tsv("MV441-PercevalHR-C16-48.txt", skip = 28)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(10*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs))
+
+data.c16.0 <- data.c16 %>%
+  filter(conc == 0) %>%
+  group_by(col) %>%
+  summarise(abs.0 = mean(abs))
+
+data.c16.norm <- data.c16 %>%
+  left_join(data.c16.0) %>%
+  mutate(abs.norm = abs/abs.0*100)
+
+data.c17 <- 
+  read_tsv("MV441-PercevalHR-C17-48.txt", skip = 28)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(10*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs))
+
+
+data.c17.0 <- data.c17 %>%
+  filter(conc == 0) %>%
+  group_by(col) %>%
+  summarise(abs.0 = mean(abs))
+
+data.c17.norm <- data.c17 %>%
+  left_join(data.c17.0) %>%
+  mutate(abs.norm = abs/abs.0*100)
+
+
+library(drc)
+
+mypal <- RColorBrewer::brewer.pal(4, "Dark2")
+
+compound.lut <- tibble(compound = c("Apoptolidin A", "Ammocidin A", "Oligomycin A"), 
+                       compound.rn = c("ApoA", "AmmoA", "OlmA"))
+model.c16 <- drm(abs.norm ~ conc, compound.rn,
+                  data = data.c16.norm %>%
+                    filter(compound != "Puromycin") %>%
+                   left_join(compound.lut) %>%
+                   arrange(compound.rn),
+                  fct = LL.4())
+
+#plot(model.c16)
+model.c17 <- drm(abs.norm ~ conc, compound.rn,
+                  data = data.c17.norm %>%
+                    filter(compound != "Puromycin") %>%
+                   left_join(compound.lut) %>%
+                   arrange(compound.rn),
+                 fct = LL.4())
+
+png("Perceval-C16.png", width = 4, height = 3, units = "in", res = 300, 
+    pointsize = 8)
+#dev.off()
+par(mar = c(5.1, 5.1, 4.1, 2.1) ) # Set the margin on all sides to 2
+
+plot(model.c16, col = mypal, 
+     type = "average",
+     broken = T, 
+     bp = 0.01, 
+     xlab = "Dose(nM)", 
+     ylab = "Viability (MTT)", 
+     xtsty = "standard")
+
+
+dev.off()
+
+
+
+png("Perceval-C17.png", width = 4, height = 3, units = "in", res = 300, 
+    pointsize = 8)
+#dev.off()
+par(mar = c(5.1, 5.1, 4.1, 2.1) ) # Set the margin on all sides to 2
+
+plot(model.c17, col = mypal, 
+     type = "average",
+     broken = T, 
+     bp = 0.01, 
+     xlab = "Dose(nM)", 
+     ylab = "Viability (MTT)", 
+     xtsty = "standard")
+
+
+dev.off()
+
+
+
+png('K562-2.png', width = 9, height = 3, units = 'in', res  = 300)
+par(mfrow=c(1,3))
+plot(model.apoA, type = "average", broken = T, bp = 0.1, xlab = "[Apoptolidin A] (nM)", ylab = "Viability (MTT)", 
+     main = "K562 - 48hr MTT", 
+     legend= FALSE)
+plot(model.ammoA, type = "average", broken = T, bp = 0.1, xlab = "[Ammocidin A] (nM)", ylab = "Viability (MTT)", 
+     main = "K562 - 48hr MTT", 
+     legend= FALSE)
+plot(model.olmA, type = "average", broken = T, bp = 0.1, xlab = "[Oligomycin A] (nM)", ylab = "Viability (MTT)", 
+     main = "K562 - 48hr MTT")
+
+
+dev.off()
+
+plot(model.apoA)
+plot(model.ammoA, normal = T, type = "all")
+drc::ED(model.parental, 50)
+drc::ED(model.mut, 50)
+(model.parental)
+
+
+plot(model.mut)
+plot(model.drm, type = "bars")
+
+
+mypallete <- c("#5e3c99", "#b2abd2", "#e66101")
+?png
+?svg
+svglite::svglite("Fig1B.svg", width = 2.5, height = 1.75, pointsize = 7)
+par(mar = c(4,4,1,1) + 0.1)
+#?par
+plot(model.parental,
+     type = "all",
+     log = "x",
+     pch = 1,
+     xlab = "Dose (nM)", 
+     ylab =  expression("Viability"),
+     col = mypallete,
+     #normal = T, 
+    # lty = 1, 
+     # ylim = c(0,ymax), 
+     legend = T,
+     xt = c(1000 / sqrt(10)^c(0:9)),
+     yt = c(0.0 ,0.2, 0.4, 0.6, 0.8, 1.0, 1.2), 
+     ytlab = c(0,"", "", "", "", 100, ""),
+     xtlab = c("1000", "", "100", "", "10","", "1", "", "0.1"), 
+     bp = 0.03,
+     broken = T)
+
+dev.off()
+
+warnings()
+?plot.drc
+c(1000 / sqrt(10)^c(0:8))
+legend(x = 0, y = ymax,
+      legend = levels(insert.data.points$condition), 
+      col = mypallete, pch = c(2, 1), lty = c(1,1), 
+      bty = 'n')
+
+
+
+apoA.drc <- drm(abs_norm~dose, sugar_long, data = crc.data %>%
+      filter(compound == "Apoptolidin A") %>%
+        left_join(sugar.lut) %>%
+        mutate(dose = dose*1e9), fct = LL.4())
+apoA.drc
+drc::ED(apoA.drc, 10)
+apoA.drc
+png("h292crc.png", width = 5, height = 4, units = "in", res = 300)
+plot(apoA.drc, col = TRUE, 
+     xlab = "[Apoptolidin A] (nM)", 
+     ylab = "% Viable", 
+     main = "Cytotoxicity of Apoptolidin A in H292")
+dev.off()
+plot(crc.model, broken = T,
+     xlab = "[Compound]", ylab = "nMoles ATP / mg Protein / min", 
+     main = "HK/G6PD Coupled ATP Synthase Assay\nin Isolated Yeast (USY006) Mitochondria", 
+     col = TRUE, 
+     legendPos = c(1e-8, 300))
+crc.data 
+```
+
+
+```{r}
+crc.data
+crc.prediction.list <- list()
+crc.model.list <- list()
+crc.data <- crc.data %>%
+  unite("Conditions", compound, sugar, remove = F)
+
+
+library(drc)
+crc.data
+
+i <- unique(crc.data$Conditions)[[3]]
+for(i in unique(crc.data$Conditions)) {
+  mydata <- crc.data %>%
+    dplyr::filter(Conditions == i)
+  crc.model <- drm(abs_norm ~ dose, data = mydata, fct = LL.4())
+  crc.model.list[[i]] <- summary(crc.model)
+  new.doses <- expand.grid(dose=exp(seq(log(min(mydata$dose)),
+                                         log(max(mydata$dose)),
+                                         length=100)))
+  new.response <- predict(crc.model, new.doses, interval="none")
+  crc.prediction.list[[i]] <- data.frame(Doses = new.doses,
+                                         abs_norm = new.response,
+                                         Conditions = i)
+}
+
+drc::ED(crc.model, 65)
+
+?drc::ED
+ic50s  <- as_tibble(lapply(crc.model.list, function(df) df$coefficients[4,1:2])) %>%
+  bind_cols(Stat = c("estimate", "std.err")) %>%
+  gather(Conditions, IC50, -Stat) %>%
+  spread(Stat, IC50) %>%
+  mutate(estimate.lab = round(estimate, 2), 
+         std.err = round(std.err*1.96, 2)) %>%
+  mutate(label = paste0("IC50 (nM):\n",
+                        estimate.lab, " ± ", std.err))
+
+ic50s
+predicted.crc <-do.call(rbind, crc.prediction.list)
+predicted.crc
+predicted.crc.tibble <- predicted.crc %>%
+  as_tibble() %>%
+  separate(Conditions, c("compound", "sugar"), sep = "_") %>%
+  left_join(sugar.lut)
+
+
+
+crc.data %>%
+  left_join(sugar.lut) %>%
+  ggplot(aes(x=dose, y = abs_norm*100, col = sugar_long)) + 
+  geom_point(alpha = 0.2) +
+  geom_line(data = predicted.crc.tibble) +
+ # geom_smooth(se = F) + 
+  facet_wrap(compound~., nrow = 2) + 
+  scale_x_log10(breaks = c(1e-9, 1e-6, 1e-10, 1e-8, 1e-7, 1e-5, 1e-4), 
+                labels = c(1e-9, 1e-6, "", "", "", "", "")) +  
+  theme_bw() + 
+  labs(y = "% Viability (MTT)", 
+       x = "Dose (M)", 
+       title = "H292s treated for 48hrs", 
+       color = "") +
+  geom_vline(xintercept= 25e-9) + 
+  scale_color_brewer(type = "qual", palette = 6) + 
+  theme(panel.grid.minor.x = element_blank(), 
+        legend.position = c(0.25,0.7), 
+        legend.background = element_blank())
+
+ggsave('drc.png', width = 3.5, height = 5, units = "in", dpi = 300)
+
+
+ic50s
+
+ic50s_clean <-   ic50s %>%
+  mutate(Probe = grepl("PA$",Conditions))  %>%
+  group_by(Probe) %>%
+  mutate(Conditions = gsub(" PA", "", Conditions)) %>%
+  group_by(Conditions) %>%
+  mutate(Version = if_else(Probe, "PA", "NP")) %>%
+  mutate(Doses = estimate)
+
+ic50s_clean
+
+predicted.crc.tibble %>%
+  group_by(Conditions, Version) %>%
+  summarise(n = n())
+#unique(data.summarized$Individuals)
+
+Individual.lut <- tibble(
+       Individuals = c('pBABE', 'pBABE-HRas_G12V+IL3', 'pBABE-HRas_G12V-IL3', 'pMSCV-EGFR_L858R'),
+       Vector = c('Empty Vector', 'HRas-G12V','HRas-G12V', 'EGFR-L858R'),
+       IL3 = c('+IL3', '+IL3', '-IL3', '-IL3'),
+       Individuals.clean = c('pBABE +IL3', 'pBABE-HRas_G12V +IL3', 'pBABE-HRas_G12V -IL3', 'pMSCV-EGFR_L858R -IL3'))
+
+
+plot.MFI.raw <-
+  data.summarized %>%
+  ungroup() %>%
+  filter(Doses != "Vehicle") %>%
+  left_join(Individual.lut) %>%
+  mutate(Vector = fct_relevel(Vector, 'Empty Vector', 'HRas-G12V', 'EGFR-L858R')) %>%
+  mutate(IL3 = fct_relevel(IL3, '+IL3', '-IL3')) %>%
+  mutate(Doses = as.numeric(as.character(Doses))) %>%
+  ggplot(aes(x=Doses, y = MFI, col = Conditions)) +
+  geom_smooth(aes(group = Conditions), se = F, size = 0.5) +
+  geom_point(size = 0.5) +
+  scale_x_log10(breaks = c(0.1, 1, 10, 100, 1000),
+                labels = c('', '1', '', '', '1000'),
+                name = "Dose (nM)") +
+  facet_grid(Marker~Vector*IL3,scales = "free_y") +
+  scale_color_brewer(type = "qual", palette = 6, name = "Compound") +
+  theme_minimal() +
+  theme(panel.border = element_rect(color = 'black', fill = NA))
+
+
+ggsave('MFI_raw.png', width = 8, height = 5, units = "in", dpi = 300)
+
+vehicle.summary <- data.summarized %>%
+  ungroup() %>%
+  filter(Doses == "Vehicle") %>%
+  select(-Doses) %>%
+  rename(MFI.veh = 'MFI')
+
+```
+

@@ -1,0 +1,298 @@
+---
+title: "MV-411 Time Crouse Analysis"
+author: "Benjamin Reisman"
+date: "3/1/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+```{r loadpackages}
+library(flowCore)
+library(CytoML)
+library(flowWorkspace)
+library(dplyr)
+library(stringr)
+library(ggcyto)
+library(cytotidyr)
+library(debarcoder)
+library(forcats)
+library(tidyr)
+library(ggridges)
+library(patchwork)
+library(ggrastr)
+library(ggpointdensity)
+
+set.seed(1)
+```
+
+```{r helperfunctions}
+update_ff <- function(new.exprs, ff) { 
+  
+  ff.param <- parameters(ff)
+  ff.desc <- description(ff)
+  
+  Pvars <- grep("\\$P1\\D", names(ff.desc), value = TRUE) #handy to check which PnX variables are in the original file
+  missing.params <- colnames(new.exprs)[!colnames(new.exprs) %in% ff.param@data$name] 
+  
+  #adding description
+  PnN <- missing.params
+  PnR <- rep(16, length(missing.params)) #range, must be power of 2
+  PnB <- rep(32, length(missing.params)) #bits per event, 32= single percision floating point
+  PnE <- rep("0,0", length(missing.params)) #linear scaling
+  PnV <- rep("740", length (missing.params)) #voltage, set as irish lab room number
+  PnG <- rep("1.0", length(missing.params)) #gain
+  PnT <- rep("SyntheticChannel", length(missing.params)) #detector type
+  
+  PnN.existing <- grep("\\$P\\d*N", names(ff.desc), value = TRUE)  #finds all the PnNs
+  Pn.existing <- as.numeric(unlist(lapply(str_extract_all(PnN.existing, "\\d"), paste0, collapse = ""))) #extracts ns from $PnN
+  Pn <- 1:length(missing.params) + max(Pn.existing) #new channel numbers
+  
+  names(PnN) <- paste0("$P", Pn, "N")
+  names(PnR) <- paste0("$P", Pn, "R")
+  names(PnB) <- paste0("$P", Pn, "B")
+  names(PnE) <- paste0("$P", Pn, "E")
+  names(PnV) <- paste0("$P", Pn, "V")
+  names(PnG) <- paste0("$P", Pn, "G")
+  names(PnT) <- paste0("$P", Pn, "T")
+  
+  ff.desc[names(PnN)] <- PnN
+  ff.desc[names(PnR)] <- PnR
+  ff.desc[names(PnB)] <- PnB
+  ff.desc[names(PnE)] <- PnE
+  ff.desc[names(PnV)] <- PnV
+  ff.desc[names(PnG)] <- PnG
+  ff.desc[names(PnT)] <- PnT
+  
+  
+  #editing parameters
+  col.min <- apply(new.exprs[,missing.params], 2, min) - 1
+  col.min <- floor(col.min)
+  col.max <- apply(new.exprs[,missing.params], 2, max) + 1
+  col.max <- ceiling(col.max)
+  col.range <- col.max - col.min
+  
+  new.param <- rbind(ff.param@data,
+                     cbind(name = missing.params,
+                           desc = "<NA>",
+                           range = col.range,
+                           minRange = col.min,
+                           maxRange = col.max
+                           )
+                     )
+  
+  rownames(new.param) <- paste0("$P", 1:nrow(new.param))
+  ff.param@data <- new.param
+  
+  new.ff <- flowFrame(new.exprs, description = ff.desc, parameters = ff.param)
+  return(new.ff)
+}
+
+####
+# cleam_ff
+####
+# Arguments:
+## new.exprs: a matrix with the additional columns, of the form of exprs(flowframe)
+## ff: the original flowframe from which new.exrps was derived
+####
+# Returns:
+## a object of class- flowFrame, with the description and parameter fields updated to reflect
+## the additional channels. 
+####
+
+
+clean_ff <- function(flowframe) {
+  #flowframe <- A1
+  #flowframe <- ff
+  short.names <- character()
+  long.desc <- character()
+  fcsdesc <- flowframe@description
+  if(TRUE) {
+    short.names <- grep("\\$P\\d+N", names(fcsdesc), value = TRUE) #eg: "$P1N"
+    long.desc <- (fcsdesc[short.names]) #list of short names eg: "FSC-A"
+    name.numbers <- str_extract_all(short.names, "\\d")
+    name.numbers.char <- unlist(lapply(name.numbers, function(vec) paste(vec, sep="", collapse="")))
+    names(long.desc) <- paste0("$P", name.numbers.char, "S") #generates longname.names "$P1S"
+    
+    #long.desc<- lapply(long.desc, function(x) x <- "<NA>") #changes all short names to "<NA>"
+    newdesc <- append(fcsdesc, long.desc) #adds longnames to the description parameter list
+    description(flowframe) <-  newdesc#updates the description
+    
+    flowframe@parameters@data$desc <- unlist(long.desc)[order(as.numeric(name.numbers.char))]
+    flowframe
+    return(flowframe) #return the flowframe
+  } else {
+    return(flowframe)
+  }
+}
+
+
+###########
+
+
+
+
+```
+
+```{r debarcode}
+list.files()
+ce <- CytoML::open_cytobank_experiment("experiment_30857_Mar-02-2021_02-59-AM.acs")
+transformers <- ce_get_transformations(ce)
+mycomps <- ce_get_compensations(ce)
+gs <- CytoML::cytobank_to_gatingset(ce, panel_id = 1)
+fcs.paths <- list.files(ce$fcsdir, full.names = T)
+fcs.paths.panel1 <- fcs.paths[basename(fcs.paths) %in% (ce_get_samples(ce) %>%
+  dplyr::filter(panel == "Panel 1") %>%
+  pull(sample))]
+cs <- read.flowSet(fcs.paths.panel1)
+#cs <- gs_pop_get_data(gs, "singles", inverse.transform = T)
+
+cs <- compensate(cs, mycomps$`BJR-Panel1`)
+transforms <- CytoExploreR::cyto_transform_extract(transformers)
+cs <- transform(cs, transforms)
+
+#fs <-cytoset_to_flowSet(cs)
+fs <- cs
+fl <- flowSet_to_list(fs)
+
+write(ce$experiment$sampleTagIdMap, "tmp.tsv")
+tags  <-dplyr::bind_rows(lapply(lapply(ce$experiment$fcsFiles, `[[`, "tags"), as.data.frame)) %>%
+  mutate(`FCS Filename` = as.character(lapply(ce$experiment$fcsFiles, `[[`, "filename")))
+
+
+readr::read_delim("tmp.tsv", delim = ":\\")
+read_table("tmp.tsv")
+bind_cols(lapply(lapply((ce$experiment$tags), as.data.frame), t))
+mydata <- 
+  cytotidyr:::as.data.frame.flowSet(fs) %>%
+  as_tibble() %>%
+  left_join(tags) %>%
+  dplyr::filter(Conditions != "NA")
+logticks <- c(-rep(1:9, times = 5) * rep(10^c(0:4), each = 9),
+  0, 
+  rep(1:9, times = 5) * rep(10^c(0:4), each = 9))
+logticks.transformed <- asinh(logticks/500)
+logticks.labels <- logticks.transformed
+#table(table(logticks.labels))
+logticks.labels[!logticks %in% c(-10^c(1:5), 0, 10^c(1:5))] <- ""
+logticks.labels[logticks %in% c(-10^c(1:5), 0, 10^c(1:5))] <- scales::scientific_format()(logticks[logticks %in% c(-10^c(1:5), 0, 10^c(1:5))])
+
+
+veh.0 <- mydata %>%
+  mutate(Doses = as.numeric(Doses)) %>%
+  mutate(Doses = as.factor(Doses)) %>%
+  group_by(Doses, Conditions) %>%
+  summarise(pS6.MFI.0 = median(`Alexa Fluor 647-A`)) %>%
+  ungroup()%>%
+  dplyr::filter(Doses == 0) %>%
+  dplyr::select(-Doses)
+
+mydata %>%
+  mutate(Doses = as.numeric(Doses)) %>%
+  mutate(Doses = as.factor(Doses)) %>%
+  group_by(Doses, Conditions) %>%
+  mutate(pS6.MFI = median(`Alexa Fluor 647-A`)) %>% 
+  left_join(veh.0) %>%
+  mutate(pS6.asinhr = pS6.MFI - pS6.MFI.0) %>%
+  dplyr::filter(Conditions %in% c("Apoptolidin A", "Ammocidin A", "Apoptolidin A PA", "Apoptolidin H")) %>%
+  ggplot(aes(x=`Alexa Fluor 647-A`, y = Doses, fill = pS6.asinhr)) +
+  geom_density_ridges(bandwidth = 0.1, quantile_lines = T, quantiles = 2, 
+                      size = 0.25, scale = 1.3)  + 
+  scico::scale_fill_scico(palette = "broc", limits = c(-1.5, 1.5), 
+                          guide = guide_colorbar(frame.linewidth = 1, 
+                                                 frame.colour = "black", 
+                                                 ticks.linewidth = 1,
+                                                 ticks.colour = "black",
+                                                 barwidth = 1, barheight = 4, 
+                                                 draw.ulim = F, 
+                                                 draw.llim = F)) + 
+  facet_grid(.~Conditions) + 
+  coord_cartesian(xlim = c(-2, 6)) +
+  scale_x_continuous(breaks = logticks.transformed, labels = logticks.labels, name = "pS6 [Alexa 647]") + 
+  scale_y_discrete(name = "Dose (nM)") + 
+  theme_bw() + 
+  theme(panel.grid = element_blank(), 
+        axis.text.x = element_blank(), 
+        axis.text.y = element_text(color = "black"),
+        text = element_text(size = 6, color = "black"), 
+        panel.spacing.x = unit(1, "mm"), 
+        axis.ticks = element_line(size = 0.25))
+
+#?theme
+#ggsave("ridgelineplot_pS6.png", width = 6, height = 2, units = "in", dpi = 300)
+ggsave("ridgelineplot_pS6.pdf", width = 4, height = 2, units = "in", dpi = 300)
+
+
+mydata %>%
+  mutate(Doses = as.numeric(Doses)) %>%
+  mutate(Doses = as.factor(Doses)) %>%
+  group_by(Doses, Conditions) %>%
+  mutate(pS6.MFI = median(`Alexa Fluor 647-A`)) %>% 
+  left_join(veh.0) %>%
+  mutate(pS6.asinhr = pS6.MFI - pS6.MFI.0) %>%
+  group_by(Doses, Conditions) %>%
+  tally() %>%
+  spread(Conditions, n) %>%
+  readr::write_csv("cell_counts.csv")
+
+mydata.summarized <- mydata %>%
+  dplyr::filter(Conditions %in% c("Apoptolidin A", "Ammocidin A", "Apoptolidin A PA", "Apoptolidin H")) %>%
+  mutate(Doses = as.numeric(Doses)) %>%
+#  mutate(Doses = as.factor(Doses)) %>%
+  group_by(Doses, Conditions) %>%
+  summarise(pS6.MFI = median(`Alexa Fluor 647-A`)) %>% 
+  left_join(veh.0) %>%
+  mutate(pS6.asinhr = pS6.MFI - pS6.MFI.0) %>%
+  dplyr::filter(Conditions != "Oligomycin A")
+
+library(drc)
+drc  <- drm(pS6.asinhr ~ Doses, Conditions,
+                 data = mydata.summarized, fct = LL.4())
+
+
+# pdf(paste0(suffix, ".pdf"), #this line directs the plot to a png
+#     width = 4, height = 4,
+#     pointsize = 10)  #size of text (10pt)
+
+mypal <- RColorBrewer::brewer.pal(12, "Paired")
+mypal.ordered  <- mypal[c(10, 9, 4,3, 2, 1, 6)]
+pdf(paste0("pS6drc", ".pdf"), #this line directs the plot to a png
+    width = 3, height = 2,
+    pointsize = 8)  #size of text (10pt)
+
+
+#mypal <- c("black", "#43a3c8")
+par(mfrow = c(1,1), mar = c(4.1, 4.6, 1.1, 1.1))
+plot(drc, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+#     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal.ordered, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.01, #breakpoint for 0
+     xlab = "Dose (nM)", #x label
+     ylab = NA, 
+     xt = c(0, 0.1, 1, 10, 100, 1000),
+  #   yt = c(0, 0.2, 0.4, 0.6, 0.8,1, 1.2),
+#     ytlab = c("", "0.2", "", "0.6", "","1.0", ""),
+    # ylab = "Proliferation (SRB)", 
+     #ylim = c(0,1.1),
+     legendPos = c(10, -0.3)
+     ) 
+
+
+dev.off()
+```

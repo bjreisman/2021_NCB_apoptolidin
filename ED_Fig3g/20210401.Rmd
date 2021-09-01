@@ -1,0 +1,198 @@
+---
+title: "Analysis of Dataset 2"
+author: "Benjamin Reisman"
+date: "12/3/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadpackages}
+library(flowCore)
+library(CytoML)
+library(flowWorkspace)
+library(dplyr)
+library(stringr)
+library(ggcyto)
+library(cytotidyr)
+library(debarcoder)
+library(forcats)
+library(tidyr)
+library(ggpointdensity)
+set.seed(1)
+
+logticks <- c(-rep(1:10, times = 5) * rep(10^c(0:4), each = 10),
+  0, 
+  rep(1:10, times = 5) * rep(10^c(0:4), each = 10))
+
+logticks.transformed <- asinh(logticks/150)
+
+logticks.labels <- logticks.transformed
+#table(table(logticks.labels))
+logticks.labels[!logticks %in% c(-10^c(0:5), 0, 10^c(0:5))] <- ""
+logticks.labels[logticks %in% c(-10^c(0:5), 0, 10^c(0:5))] <- scales::scientific_format()(logticks[logticks %in% c(-10^c(0:5), 0, 10^c(0:5))])
+
+```
+
+```{r input}
+list.files() #find the name of the acs file here
+ce <- CytoML::open_cytobank_experiment("experiment_36794_Apr-01-2021_03-46-PM.acs")
+
+#just collecting things for later
+transformers <- ce_get_transformations(ce)
+mycomps <- ce_get_compensations(ce)
+transforms <- CytoExploreR::cyto_transform_extract(transformers)
+
+#apply the gates
+gs <- CytoML::cytobank_to_gatingset(ce, panel_id = 1)
+#pull out the gated data wihtout comps/transfromations
+cs_orig <- gs_pop_get_data(gs, "Live", inverse.transform = T)
+
+gs
+
+#cs <- compensate(cs, mycomps$SB) #already compensated by ce_get_compensations
+cs <- transform(cs_orig, transforms)
+
+fs <- cytoset_to_flowSet(cs)
+
+
+```
+
+```{r debarcoding}
+
+k562_ko <- fs@frames$`ATPIF1_K562-KO_003.fcs`
+
+prefix <- str_split(basename(myfcb@description$FILENAME), "\\.")[[1]][1]
+
+ggplot(k562_ko, aes(x=`Alexa Fluor 488-A`, y = `Pacific Blue-A`)) + 
+  geom_bin2d(bins = 400) + 
+  scale_fill_viridis_c(option = "A") + 
+  theme_bw()
+
+ggplot(k562_ko, aes(x=`SSC-A`, y = `Pacific Blue-A`)) + 
+  geom_bin2d(bins = 400) + 
+  scale_fill_viridis_c(option = "A") + 
+  theme_bw()
+#k562_ko
+ggplot(k562_ko, aes(x=`SSC-A`, y = `Alexa Fluor 700-A`)) + 
+  geom_bin2d(bins = 400) + 
+  scale_fill_viridis_c(option = "A") + 
+  theme_bw()
+
+my.predictors <- c("fsc_a", "ssc_a")
+
+# deskewing
+#?deskew_fcbFlowFrame
+k562_ko_debarcoded <- deskew_fcbFlowFrame(k562_ko,
+                                     uptake = k562_ko,
+                                     method = "knijnenburg",
+                                     predictors = my.predictors,
+                                     channel = c("pacific_blue_a"))
+
+
+
+#ggsave(paste0(prefix, "_deskewed.png"), width = 4, height = 4, units = "in", dpi = 300)
+
+k562_ko_debarcoded <- cluster_fcbFlowFrame(k562_ko_debarcoded,
+                                      channel = c("pacific_blue_a"),
+                                      levels = 3)
+
+## assigning
+k562_ko_debarcoded <- assign_fcbFlowFrame(k562_ko_debarcoded,
+                                  channel = c("pacific_blue_a"),
+                                  likelihoodcut = 12,
+                                  ambiguitycut = 0.05)
+k562_ko_debarcoded_split <- flowCore::split(k562_ko_debarcoded, getAssignments(k562_ko_debarcoded))
+
+pData(k562_ko_debarcoded_split) <- pData(k562_ko_debarcoded_split) %>%
+  mutate(condition = c("Unassigned", "Parental", "sgRNA1", "sgRNA2"))
+
+library(ggridges)
+mytransforms <- ce_get_transformations(ce)
+
+as_tibble(k562_ko_debarcoded_split) %>%
+  dplyr::filter(condition != "Unassigned") %>%
+  mutate(condition = as.factor(condition),
+         condition = fct_rev(condition)) %>%
+  ggplot(aes(x = `Alexa Fluor 488-A`, y= condition, fill = condition)) + 
+  geom_density_ridges(scale = 1.3,
+                      #fill = "dodgerblue3",
+                      alpha = 0.7) + 
+  theme_classic() + 
+  scale_fill_brewer(type = "qual", palette = 7, guide = F) + 
+  scale_y_discrete(name = "") + 
+  scale_x_continuous(breaks = logticks.transformed, labels = logticks.labels, 
+                     name = "ATPIF1 [Alexa 488]") + 
+  theme(text = element_text(size = 6), 
+        axis.title.y = element_blank())
+
+ggsave("K562.pdf", width = 1.5, height = 1.5, units = "in")
+## make a plate map and apply it to update the pData slot
+
+as_tibble(k562_ko_debarcoded_split) %>%
+  dplyr::filter(condition != "Unassigned") %>%
+  mutate(condition = as.factor(condition),
+         condition = fct_rev(condition)) %>%
+  group_by(condition) %>%
+  tally()
+
+myplatemap <- tibble(
+  `Pacific Blue-A` = rep(1:8, times = 6),
+  `Pacific Orange-A` = rep(1:6, each = 8)
+) %>% 
+  mutate(well = paste0(LETTERS[`Pacific Blue-A`], "0", `Pacific Orange-A`)) %>%
+  janitor::clean_names() %>%
+  mutate_all(as.character)
+
+debarcoded.fs <- apply_platemap(debarcoded.fs,
+                                myplatemap,
+                                prefix = prefix)
+
+
+
+
+## ploting
+mypal <- c(sample(scales::hue_pal()(48)), "grey50")
+assignment.vec <- paste0(
+    myassignments$pacific_blue_a, ".",
+    myassignments$pacific_orange_a
+  )
+
+# pretty plot, each well is a random color
+
+ggplot(debarcoded.fs.inverted %>%
+         as_tibble() %>%
+         dplyr::filter(well != "Unassigned") %>%
+         sample_n(50e3),
+       aes(x=`Pacific Blue-A`,
+                          y = `Pacific Orange-A`,
+                          col = well)) +
+  geom_point(shape = ".", alpha = 0.5) + 
+  scale_color_manual(values = mypal, guide = F) + 
+  theme_classic() + 
+  coord_fixed()
+
+ggsave(paste0(prefix, "_assignements.png"), width = 4, height = 4, units = "in", dpi = 300)
+
+```
+
+```{r output}
+#undoing transformations and compensations
+transforms.inverse <- CytoExploreR::cyto_transform_extract(transformers, inverse = T)
+debarcoded.fs.inverted  <- transform(debarcoded.fs, transforms.inverse)
+gs_comp <- gs_get_compensations(gs)[basename(myfcb@description$FILENAME)][[1]]
+
+
+debarcoded.fs.decompensated <- compensate(debarcoded.fs.inverted, solve(gs_comp@spillover))
+
+
+outdir <- "debarcoded"
+#pData(debarcoded.fs.decompensated)
+write.flowSet(debarcoded.fs.decompensated, outdir = outdir)
+
+
+```

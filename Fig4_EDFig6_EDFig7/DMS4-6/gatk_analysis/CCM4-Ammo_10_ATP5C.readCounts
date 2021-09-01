@@ -1,0 +1,19 @@
+Total Reads:	9431980	100.000%
+>Unmapped Reads:	1236304	13.108%
+>LowQ Reads:	570994	6.054%
+>Evaluable Reads:	7624682	80.839%
+>>Reads in disjoint pairs evaluated separately:	1776872	23.304%
+>>>Wild type:	841096	47.336%
+>>>Called variants:	88728	4.993%
+>>>Mate ignored:	747170	42.050%
+>>>Low quality variation:	57670	3.246%
+>>>Insufficient flank:	42208	2.375%
+>>Reads in overlapping pairs evaluated together:	5847810	76.696%
+>>>Wild type:	2238123	76.546%
+>>>Called variants:	388910	13.301%
+>>>Inconsistent pair:	14899	0.510%
+>>>Low quality variation:	138704	4.744%
+>>>Insufficient flank:	143269	4.900%
+Total base calls:	1118260388	100.000%
+>Base calls evaluated for variants:	442299313	39.552%
+>Base calls unevaluated:	675961075	60.448%

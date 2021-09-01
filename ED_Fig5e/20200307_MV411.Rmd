@@ -1,0 +1,300 @@
+---
+title: "Cytotoxicity analysis pipeline for 96 well plates"
+author: "Benjamin Reisman"
+date: sys_date
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+exp_name <- "20200308_MV411Parental" #no spaces or periods pls
+
+```
+
+
+```{r generate platemap}
+platemap <- tibble(
+   row = rep(LETTERS[1:8], times = 12), #A:H repeated 12 times
+   col = rep(1:12, each = 8), # 1:12, each one repeated 8 times
+   well = paste0(row, str_pad(col, 2, 'left', "0")), #put the row and col together, making sure to left pad the numbers so 9 comes before 10 
+   compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"), #which compound goes in each column
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6),  #7 serial dilutions + 0
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3), # serial dilutions for 7:9
+             rep(c(21*1000/sqrt(10)^(0:6), 0), times = 3)), # serial dilutions for 10:12
+   line = "MV-4-11") %>%  #which cell lines
+  mutate(conc = signif(conc, 3)) #round doses to three sig figs
+  
+
+write_csv(platemap, #the map we just made
+          paste0(exp_name, "_platemap.csv")) #writing the platemap
+```
+
+```{r read platemap}
+list.files() #find your platemap
+platemap <- read_csv("platemap.csv")
+```
+
+```{r read and tidy}
+list.files()
+library(platetools)
+filename <- "MV411-Parental.txt" #path to exported data
+lines_to_skip <- 17 #how many lines to skip in the text file
+
+readplate <- function(filename, lines_to_skip, platemap) {
+  plate.md <- read_lines(filename,
+             skip = lines_to_skip-1, 
+             n_max = 1)
+  
+  wavelength <- str_split(plate.md, pattern = "\t", simplify = T)[16]
+  
+  data.raw <- 
+    read_tsv(filename, skip = lines_to_skip)[1:8, 3:14] %>%
+      print() %>%
+      mutate(row = LETTERS[1:8]) %>%
+      dplyr::select(row, everything()) %>%
+      gather(col, abs, -row) %>%
+      mutate(col = as.numeric(col)) %>%
+      arrange(col, row) %>%
+      left_join(platemap)
+}
+
+list.files()
+data.mv411p <- 
+  read_tsv("MV411-Parental.txt", skip = 17)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(21*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs), 
+         line = "Parental")
+
+
+ data.mv411p.0 <- data.mv411p %>%
+  filter(conc == 0) %>%
+  group_by(col) %>%
+  summarise(abs.0 = mean(abs))
+
+
+data.mv411p.norm <- data.mv411p %>%
+  left_join(data.mv411p.0) %>%
+  mutate(abs.norm = abs/abs.0*100) %>%
+  mutate(well = paste0(row, str_pad(col, 2, "left", pad = "0")))
+
+data.mv411c09 <- 
+  read_tsv("MV411-L441F-C09.txt", skip = 17)[1:8, 3:14] %>%
+    mutate(row = LETTERS[1:8]) %>%
+    dplyr::select(row, everything()) %>%
+    gather(col, abs, -row) %>%
+    mutate(col = as.numeric(col)) %>%
+    arrange(col, row) %>%
+  mutate(compound = rep(
+    c("Apoptolidin A",
+      "Apoptolidin A",
+      "Apoptolidin A",
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Ammocidin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Oligomycin A", 
+      "Puromycin", 
+      "Puromycin", 
+      "Puromycin"),
+    each = 8), 
+    conc = c(rep(c(sqrt(10)*100/sqrt(10)^(0:6), 0), times = 6), 
+             rep(c(sqrt(10)*10/sqrt(10)^(0:6), 0), times = 3),
+             rep(c(21*1000/sqrt(10)^(0:6), 0), times = 3))) %>%
+  mutate(conc = signif(conc, 3),
+         abs = abs - min(abs), 
+         line = "ATP5B-L394F")
+
+
+data.mv411c09.0 <- data.mv411c09 %>%
+  filter(conc == 0) %>%
+  group_by(compound) %>%
+  summarise(abs.0 = mean(abs))
+
+data.mv411c09.norm <- data.mv411c09 %>%
+  left_join(data.mv411c09.0) %>%
+  mutate(abs.norm = abs/abs.0*100) %>%
+  mutate(well = paste0(row, str_pad(col, 2, "left", pad = "0")))
+
+
+```
+
+```{r}
+mydata.norm <- bind_rows(data.mv411p.norm, data.mv411c09.norm) %>%
+  mutate(abs.norm = abs.norm/100)
+
+mydata.norm  
+```
+
+
+```{r}
+library(drc)
+drc.ammoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Ammocidin A"), fct = LL.4())
+
+drc.apoA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Apoptolidin A"), fct =  LL.4(), 
+  separate = T)
+
+mydata.norm
+mydata.norm %>%
+  ggplot(aes(x=conc, y = abs.norm, col = line)) + 
+  geom_point() + 
+  scale_x_log10() + 
+  facet_grid(compound~.)
+
+drc.olmA <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Oligomycin A"), fct = LL2.3u(), 
+  separate = T)
+
+plot(drc.olmA)
+
+drc.puro <- drm(abs.norm ~ conc, line,
+                 data = mydata.norm %>%
+  dplyr::filter(compound == "Puromycin"), fct = LL.4())
+#dev.off()
+plot(drc.apoA)
+plot(drc.ammoA)
+plot(drc.olmA)
+plot(drc.puro)
+
+mydata.norm <- mydata.norm %>%
+  arrange(desc(line))
+suffix <- "MV411-ATP5B-L394F"
+dev.off()
+pdf(paste0(suffix, ".pdf"), #this line directs the plot to a png
+    width = 8, height = 2,
+    pointsize = 10)  #size of text (10pt)
+
+
+#mypal <- c("black", "#43a3c8")
+mypal <- palette.colors(2)
+par(mfrow = c(1,4), mar = c(4.1, 2.6, 1.1, 1.1))
+
+
+myylim <- c(0,1.6)
+myyt <- seq(myylim[1], myylim[2], by = 0.2)
+myytlab <- myyt
+myytlab[seq(length(myyt)) %% 2 == 1] <- ""
+plot(drc.ammoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Ammocidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(10, 0.5)
+     ) 
+
+#dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+plot(drc.apoA, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+#     legend = F,  
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.1, #breakpoint for 0
+     xlab = "[Apoptolidin A] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(30, 0.6)
+     ) 
+
+plot(drc.olmA,
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color?
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     legend = F,
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 0.003, #breakpoint for 0
+     xlab = "[Oligomycin A] (nM)", #x label
+     ylab = NA,
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1, 0.5)
+     )
+
+
+plot(drc.puro, 
+     type = "average", #what to plot (average, all, bars, none, obs, or confidence)
+     legend = F,  
+   #  normal = T, #normalize curves? NOTE: THIS DO  ESN't WORK WELL, HIGHLY SUGGEST DOING IT YOURSELF
+     col = mypal, #color? 
+     broken = T, #break in the xaxis for 0?
+     conName = "Veh",
+     xtsty = "base10", #xaxis ticks base10 or standard
+     bp = 1, #breakpoint for 0
+     xlab = "[Puromycin] (nM)", #x label
+     ylab = NA, 
+     yt = myyt,
+     ytlab = myytlab,
+     ylim = myylim,
+     legendPos = c(1000, 0.5)
+     ) 
+#?plot.drc
+
+
+dev.off() #this line turns off the png device and redirects plots towards rstudio
+
+
+```

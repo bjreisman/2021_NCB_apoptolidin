@@ -1,0 +1,641 @@
+---
+title: "CCM Analysis Replicate 1"
+author: "Benjamin Reisman"
+date: "10/14/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+aacountpaths <- list.files("gatk_analysis", pattern = "aaCounts", full.names = T)
+aacountpaths.plasmid <- list.files("gatk_analysis_plasmid", pattern = "bwa.aaCounts", full.names = T)
+aacountpaths.plasmid
+i <- aacountpaths[[1]]
+library(dplyr)
+library(stringr)
+library(tidyverse)
+
+aaCounts <- lapply(aacountpaths, function(i) {
+  read_tsv(i) %>%
+  mutate(file =  str_split(basename(i), "\\.")[[1]][1]) %>%
+  mutate(residue = 1:n())
+})  %>%
+  bind_rows()
+
+aaCounts
+aacountpaths.plasmid
+
+aaCounts.plasmid <- lapply(aacountpaths.plasmid, function(i) {
+  read_tsv(i) %>%
+  mutate(file =  str_split(basename(i), "\\.")[[1]][1]) %>%
+  mutate(residue = 1:n())
+})  %>%
+  bind_rows()
+aaCounts.plasmid
+valid.residue <- c('R253', 'L102', 'G101', 'R100', 'K55', 'M48', 'I44', 'I41',
+                   'D450', 'S447', 'L446', 'E445', 'L441', 'I440', 'I437', 'D436',
+                   'D452', 'F449', 'Q448', 'F446', 'A445')
+
+wt.tbl <- tibble(chain = c(rep('ATP5C', 8), rep('ATP5B', 8), rep('ATP5A1', 5)), 
+                 aa.residue = valid.residue) %>%
+          mutate(residue = as.integer(substr(aa.residue, 2, 10))) 
+
+allcounts.plasmid  <- 
+  aaCounts.plasmid %>%
+  mutate(file = gsub("_ATP5", "-ATP5", file)) %>%
+  separate(file, c('drop1', 'drop2', "chain"), sep = "-") %>%
+  select(-drop1, -drop2) %>%
+  gather("aa", "count", -c('chain', 'residue')) %>%
+  mutate(sample = 'library') %>%
+  filter(count > 100) %>%
+  group_by(sample, chain, residue) %>%
+  add_tally() %>%
+  mutate(WT = count == max(count), 
+         frac = count/sum(count)) %>%
+  left_join(wt.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  ungroup() %>%
+  select(-count, -n)
+
+
+allcounts.plasmid
+allcounts  <- 
+  aaCounts %>%
+  mutate(file = gsub("_ATP5", "-ATP5", file)) %>%
+  separate(file, c("sample", "compound", "chain"), sep = "-") %>%
+  group_by(sample, compound, chain) %>%
+  #filter(sample %in% c("WT","CCM1", "CCM2", "CCM3")) %>%
+  gather("aa", "count", -c('sample', 'compound', 'chain', 'residue')) %>%
+  filter(count > 100) %>%
+  group_by(sample, compound, chain, residue) %>%
+  add_tally() %>%
+  mutate(WT = count == max(count), 
+         frac = count/sum(count)) %>%
+  left_join(wt.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  ungroup() %>%
+  select(-n, -count)
+allcounts
+parental <- allcounts %>%
+  filter(compound == "Vehicle") %>%
+  rename(frac.parental = frac) %>%
+  select(-compound, -WT) 
+
+allodds <- 
+  allcounts %>%
+    full_join(parental) %>%
+  mutate(odds = log10((frac)/(1-(frac)))) %>%
+  mutate(odds.parental = log10((frac.parental)/(1-(frac.parental)))) %>%
+  mutate(enrich = odds - odds.parental) %>%
+  arrange(desc(residue)) %>%
+  mutate(residue = as.factor(residue)) %>%
+  mutate(residue = forcats::fct_rev(residue))
+
+allodds %>%
+  filter(residue == 437, compound == "Ammo_3") %>%
+  filter(residue == "I")
+allodds.wt <- 
+  allodds %>%
+  filter(WT == TRUE) %>%
+  rename(enrich.wt = enrich) %>%
+  select(sample, compound, chain, residue, enrich.wt)
+
+
+allodds.norm <- allodds %>%
+  left_join(allodds.wt) %>% 
+  mutate(enrich.norm = enrich - enrich.wt) 
+
+
+
+variant.counts <- allodds.norm  %>%
+  select(sample, compound, chain , residue, aa, aa.residue, enrich.norm) %>%
+  group_by(sample, compound) %>%
+  tally()
+
+
+allodds.norm  %>%
+  select(sample, compound, chain , residue, aa, aa.residue, enrich.norm) %>%
+  spread(sample, enrich.norm) %>%
+  mutate(CCM4 = replace_na(CCM4, -3)) %>%
+  mutate(CCM5 = replace_na(CCM5, -3)) %>%
+  mutate(CCM6 = replace_na(CCM6, -3)) %>%
+  summary
+
+
+allodds.norm  %>%
+  select(sample, compound, chain , residue, aa, aa.residue, enrich) %>%
+  spread(sample, enrich) %>%
+  mutate(CCM4 = replace_na(CCM4, -3)) %>%
+  mutate(CCM5 = replace_na(CCM5, -3)) %>%
+  mutate(CCM6 = replace_na(CCM6, -3)) %>%
+  ggplot(aes(x=CCM4, y = CCM5, col = chain)) + 
+  scale_x_continuous(limits = c(-5, 5)) + 
+  scale_y_continuous(limits = c(-5, 5)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) + 
+  coord_fixed() + 
+  geom_point(size = 0.5) + 
+  facet_wrap(compound~., nrow = 1) + 
+  theme_bw() + 
+  theme(text = element_text(size= 8))
+
+ggsave('ccm1_v_cc2_enrich.png', width = 7, height = 2, units = "in", dpi = 300)
+
+ammo3 %>%
+  filter(chain == "ATP5B", residue == 436)
+ammo3_data %>%
+  left_join(ammo3_wt) %>% 
+  mutate(enrich.norm = enrich - enrich.wt) %>%
+  ggplot(aes(x=enrich.wt)) + 
+  geom_histogram()
+
+
+# parental %>%
+#   left_join(ammo3) %>%
+#   mutate(enrich = frac.ammo3/frac.parental) %>%
+#   filter(WT == FALSE) %>%
+#   select(-frac.parental, -frac.ammo3) %>%
+#   group_by(chain, residue, aa) %>%
+#   spread(sample, enrich) %>%
+#   ggplot(aes(x=CCM1, y = CCM2)) +
+#   geom_point() + 
+#   scale_x_log10() +
+#   scale_y_log10() +
+#   geom_hline(yintercept = 1, linetype = 2) + 
+#   geom_vline(xintercept = 1, linetype = 2) + 
+#   theme_bw() + 
+#   theme(panel.grid = element_blank(), strip.background = element_rect(fill = NA)) + 
+#   facet_grid(chain~.) + 
+#   coord_fixed()
+# 
+# ggsave('ammoa3_enrichment_ccm1_ccm2.png', width = 4, height = 8, units = "in", dpi = 300)
+ammo3_data.norm %>%
+  ggplot(aes(x=enrich.norm)) + 
+  geom_histogram()
+
+list.files(pattern = "csv")
+aa_groupings <- read_csv("aa_groupings.csv")
+table(allcounts$sample)
+
+
+res.order.0 <- 
+  allodds %>%
+  filter(WT == TRUE) %>%
+  filter(compound == "Vehicle") %>%
+  mutate(residue = as.numeric(as.character(residue))) %>%
+  mutate(aa.residue = paste0(aa, residue)) %>%
+#  mutate(aa.residue = factor(aa.residue)) %>%
+  ungroup() %>%
+  select(chain, residue, aa.residue)
+
+res.order.0
+res.order <- 
+  res.order.0 %>%
+  group_by(chain, residue) %>%
+  slice(1) %>%
+  pull(aa.residue)
+res.order.tbl <- 
+  res.order.0 %>%
+  mutate(aa.residue = factor(aa.residue, levels = rev(res.order))) %>%
+  mutate(residue = as.character(residue)) %>%
+  group_by(chain, residue, aa.residue) %>%
+  slice(1)
+res.order.tbl
+allodds.norm %>% 
+  filter(chain == "ATP5B", residue == 436)
+
+
+allodds.wt %>%
+  filter(residue == 437)
+allcounts %>%
+    filter(compound == "Ammo_3") %>%
+    filter(chain == "ATP5B", residue == 437, aa == "I") 
+
+library(scico)
+WT.alleles
+WT.alleles <- 
+  allodds.norm %>%
+  filter(aa == substr(aa.residue, 1,1)) %>%
+  group_by(aa.residue, chain, aa) %>%
+  slice(1) %>%
+  select(aa.residue, chain, aa) %>%
+   inner_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  left_join(res.order.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue)
+
+WT.alleles
+
+allodds.norm %>%
+  group_by(chain, sample, compound) %>%
+  left_join(res.order.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  left_join(res.order.tbl) %>%
+  mutate(mut = aa != substr(aa.residue, 1, 1)) %>%
+  summarise(mut.frac = sum(frac*as.numeric(mut))) %>%
+  filter(mut.frac > 1) %>%
+  ggplot(aes(x=mut.frac)) + 
+  geom_histogram()
+  
+  
+allodds.norm %>%
+  group_by(chain, sample, compound) %>%
+  left_join(res.order.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  left_join(res.order.tbl) %>%
+    mutate(mut = aa != substr(aa.residue, 1, 1)) %>%
+  filter(compound == "Ammo_300", sample == "CCM6") %>%
+  filter(mut == T, chain == "ATP5C") %>%
+  arrange(desc(frac)) %>%
+  mutate(sum.frac = sum(frac)) %>%
+  select(-mut)
+allodds.norm
+
+allodds.norm %>%
+  filter(complete.cases(.)) %>%
+  filter(enrich >= 0 | WT == TRUE) %>%
+  group_by(chain, compound, residue, aa) %>%
+  add_tally() %>%
+  filter(n > 1) %>%
+  group_by(chain, compound, residue, aa) %>%
+  summarise(enrich = mean(enrich)) %>%
+  spread(compound, enrich) %>%
+  mutate(level = "") %>%
+  mutate(level = if_else(!is.na(Vehicle), "Vehicle","")) %>%
+  mutate(level = if_else(Ammo_3 > 1, "Ammocidin 3",level, missing = level)) %>%
+  mutate(level = if_else(Ammo_10 > 1, "Ammocidin 10",level, missing = level)) %>%
+  mutate(level = if_else(Ammo_30 > 1, "Ammocidin 30",level, missing = level)) %>%
+  mutate(level = if_else(Ammo_300 > 1, "Ammocidin 300",level, missing = level)) %>%
+  inner_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  left_join(res.order.tbl) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  mutate(level = if_else(aa == substr(aa.residue, 1, 1), "Vehicle", level)) %>%
+  mutate(level = factor(level, levels = c("Vehicle", "Ammocidin 3", "Ammocidin 10", "Ammocidin 30", "Ammocidin 300"))) %>%
+  ggplot(aes(y = aa.residue, x = aa, fill = level)) + 
+  geom_tile(color = "white", size = 1) + 
+  scico::scale_fill_scico_d(palette = 'acton', direction = -1) + 
+  #scale_fill_brewer(type = "seq", palette = 12) + 
+  #   geom_point(
+  #   data = WT.alleles,
+  #   inherit.aes = F,
+  #   aes(y = aa.residue, x = aa)
+  # ) +
+  facet_grid(chain ~ group, scales = "free", space = "free") + 
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave('enrichment_all_10fold.png', width = 8, height = 6, units = "in", dpi = 300)
+
+?fct_relevel()
+
+  spread()
+  ggplot(aes(y=aa.residue, y = compound))
+
+
+allodds.norm %>% 
+  ungroup() %>%
+#  mutate(enrich.norm = if_else(is.nan(enrich.norm), 0, enrich.norm)) %>%
+ # filter(complete.cases(.)) %>%
+  group_by(compound, chain , residue, aa) %>%
+ # filter(compound == "Apo_100") %>%
+  
+  filter(sample == "CCM3") %>%
+  filter(compound == "Apo_1000") %>%
+#  filter(aa == "R")
+  summarise(enrich = mean(enrich, na.rm = T)) %>%
+  inner_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  filter(enrich > -0.5) %>%
+  #  filter(compound == "Ammo_3", residue == 102) 
+  left_join(res.order.tbl) %>%
+  
+  select(chain, residue, aa, enrich, group, aa.residue) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  mutate(enrich = if_else(enrich == Inf, 0, enrich)) %>%
+  #filter(residue == 101, aa == F)
+  ggplot(aes(y = aa.residue, x = aa, fill = enrich)) +
+  geom_tile(color = "white", size = 1) +
+  facet_grid(chain ~ group, scales = "free", space = "free") +
+  scale_fill_scico(
+    palette = 'cork',
+    na.value = "grey50",
+    limits = c(-5, 5),
+    name = "log10\nEnrichment\nAmmo 3 nm"
+   # name = "log10\nEnrichment\nApo 100 nM"
+  ) +
+#  scale_fill_scico(palette = 'bilbao') +
+  geom_point(
+    data = WT.alleles,
+    inherit.aes = F,
+    aes(y = aa.residue, x = aa)
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = NA), 
+        text = element_text(color = 'black'), 
+        axis.text = element_text(color = 'black')) +
+  scale_x_discrete(name = "a.a.")
+ggsave('ammo3_enrichment_norm.png', width = 8, height = 6, units = "in", dpi = 300)
+
+
+
+allodds.norm %>%
+  ungroup() %>%
+    filter(complete.cases(.)) %>%
+  group_by(compound, chain , residue, aa) %>%
+  filter(compound == "Ammo_3" | compound == "Apo_100") %>%
+ # filter(sample == "CCM1") %>%
+#  filter(compound == "Ammo_3") %>%
+  summarise(enrich.norm = mean(enrich.norm, na.rm = T)) %>%
+  spread(compound, enrich.norm) %>%
+  mutate(Ammo_3 = replace_na(Ammo_3, -4)) %>%
+  mutate(Apo_100 = replace_na(Apo_100, -4)) %>%
+  filter(Apo_100 > 1) %>%
+  filter(Ammo_3 < 1)
+
+  ggplot(aes(x=Ammo_3, y = Apo_100, col = chain)) + 
+  scale_x_continuous(limits = c(-5, 5)) + 
+  scale_y_continuous(limits = c(-5, 5)) + 
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) + 
+  geom_point() + 
+  theme_bw() + 
+  coord_fixed()
+
+ggsave('apoA100_ammo3.png', width = 5, height = 5, units = "in", dpi = 300)
+
+
+
+
+  inner_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  left_join(res.order.tbl) %>%
+  select(chain, residue, aa, enrich.norm, group, aa.residue) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  ggplot(aes(y = aa.residue, x = aa, fill = enrich.norm)) +
+  geom_tile(color = "white", size = 1) +
+  facet_grid(chain ~ group, scales = "free", space = "free") +
+  scale_fill_scico(
+    palette = 'cork',
+    na.value = "grey97",
+    limits = c(-5, 5),
+   # name = "log10\nEnrichment\nApo 100 nm"
+    name = "log10\nEnrichment\nAmmo 3 nM"
+  ) +
+  geom_point(
+    data = WT.alleles,
+    inherit.aes = F,
+    aes(y = aa.residue, x = aa)
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = NA), 
+        text = element_text(color = 'black'), 
+        axis.text = element_text(color = 'black')) +
+  scale_x_discrete(name = "a.a.")
+
+
+allodds.norm %>%
+  filter(aa != "X") %>%
+  filter(compound == "Apo_100") %>%
+  group_by(chain, residue, aa) %>%
+  filter(sample == "CCM1") %>%
+  #summarise(enrich.norm = mean(enrich.norm, na.rm = T)) %>%
+  left_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  left_join(res.order.tbl) %>%
+  select(chain, residue, aa, enrich.norm, group, aa.residue) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+ggplot(aes(y = aa.residue, x = aa, fill = enrich.norm)) +
+  geom_tile(color = "white", size = 1) +
+  facet_grid(chain ~ group, scales = "free", space = "free") +
+  scale_fill_scico(
+    palette = 'cork',
+    na.value = "grey90",
+    limits = c(-5, 5),
+    name = "log10\nEnrichment\nAmmo 3 nm"
+  ) +
+  geom_point(
+    data = WT.alleles,
+    inherit.aes = F,
+    aes(y = aa.residue, x = aa)
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = NA), 
+        text = element_text(color = 'black'), 
+        axis.text = element_text(color = 'black')) +
+  scale_x_discrete(name = "a.a.") + 
+  scale_y_discrete(breaks = res.order.tbl$aa.residue, name = "residue") + 
+  labs(title = "DMS1-3")
+
+ggsave('ammoa3_enrichment_dms1-3.png', width = 8, height = 6, units = "in", dpi = 300)
+
+  pull(residue)
+
+parental %>%
+  left_join(vehicle) %>%
+  mutate(enrich = frac.vehicle/frac.parental) %>%
+  group_by(chain, residue, aa)# %>%
+  summarise(enrich = mean(enrich, na.rm = T)) %>%
+  ungroup() %>%
+  arrange(residue) %>%
+  mutate(residue = as.factor(residue)) %>%
+  mutate(residue = forcats::fct_rev(residue)) %>%
+  ggplot(aes(y=residue, x =aa, fill = enrich)) + 
+  geom_tile(color= "white", size = 1) + 
+  facet_wrap(chain~., scales = "free", nrow = 3) + 
+  scale_fill_scico(palette = 'cork', trans = "log10", limits = c(0.01, 100), na.value = NA, name = "log10\nEnrichment\nVehicle", 
+                   breaks = c(0.01, 0.1, 1, 10, 100), labels = c(0.01, 0.1, 1, 10, 100)) + 
+  theme_bw() + 
+  theme(panel.grid = element_blank(), strip.background = element_rect(fill = NA)) + 
+  scale_x_discrete(name = "a.a.")
+
+ggsave('vehicle_enrichment.png', width = 8, height = 8, units = "in", dpi = 300)
+
+```
+
+
+
+
+```{r}
+
+
+allcounts.plasmid %>%
+  filter(residue == 44) 
+allcounts  %>%
+  left_join(allcounts.plasmid %>%
+  rename(frac.lib = frac) %>%
+  select(-sample, -WT)) %>%
+  filter(compound == "Parental") %>%
+  mutate(odds = log10(frac/(1-frac)), 
+         odds.lib = log10(frac.lib/(1-frac.lib))) %>%
+  mutate(enrich = odds - odds.lib) %>%
+   left_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  mutate(residue = as.character(residue)) %>%
+  select(-aa.residue) %>%
+  left_join(res.order.tbl) %>%
+  filter(grepl("CCM", sample)) %>%
+  group_by(compound, chain, residue, aa, aa.residue, group) %>%
+  summarise(enrich = mean(enrich, na.rm = T))  %>%
+  select(chain, residue, aa, enrich, group, aa.residue) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) %>%
+  ggplot(aes(x=aa, y = aa.residue, fill = enrich)) + 
+  geom_tile(color = 'white', size = 1) + 
+  facet_grid(chain~group, scales = "free", space = 'free') + 
+  scale_fill_scico(palette = 'cork', limits = c(-1.5, 1.5), na.value = NA) + 
+  geom_point(
+    data = WT.alleles,
+    inherit.aes = F,
+    aes(y = aa.residue, x = aa)
+  ) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave('parental_v_library.png', width = 8, height = 6, units = "in", dpi = 300) 
+
+
+allcounts  %>%
+  left_join(allcounts.plasmid %>%
+  rename(frac.lib = frac) %>%
+  select(-sample, -WT)) %>%
+  filter(compound == "Parental") %>%
+  mutate(odds = log10(frac/(1-frac)), 
+         odds.lib = log10(frac.lib/(1-frac.lib))) %>%
+  mutate(enrich = odds - odds.lib) %>%
+   left_join(aa_groupings) %>%
+  mutate(group = factor(
+    group,
+    levels  = c(
+      "Hydrophobic",
+      "Disruptive",
+      "Hydrophilic",
+      "Positive",
+      "Negative"
+    )
+  )) %>%
+  mutate(residue = as.character(residue)) %>%
+  select(-aa.residue) %>%
+  left_join(res.order.tbl) %>%
+  filter(grepl("CCM", sample)) %>%
+  group_by(compound, chain, residue, aa, aa.residue, group) %>%
+  ggplot(aes(x=odds.lib, y = odds, col = sample)) + 
+  geom_point() + 
+  geom_abline(slope = 1) + 
+  facet_wrap(aa.residue~., nrow = 3) + 
+  theme_bw() + 
+  coord_fixed()
+
+ggsave('lib_v_parental.png', width = 10, height = 7, units = "in", dpi = 300)
+  summarise(enrich = mean(enrich, na.rm = T), 
+            enrich = mean(enrich, na.rm = T))  %>%
+  select(chain, residue, aa, enrich, group, aa.residue) %>%
+  filter(!is.na(aa.residue)) %>%
+  filter(aa.residue %in% valid.residue) 
+allcounts  %>%
+  left_join(allcounts.plasmid %>%
+  rename(frac.lib = frac) %>%
+  select(-sample, -WT)) %>%
+  filter(sample == "CCM1", compound == "Parental") %>%
+  mutate(odds = log10(frac/(1-frac)), 
+         odds.lib = log10(frac.lib/(1-frac.lib))) %>%
+  mutate(enrich = odds - odds.lib) %>%
+  summary()
+  filter(!WT) %>%
+  ggplot(aes(x=odds.lib, y = odds)) + 
+  geom_point() + 
+  coord_fixed() 
+allcounts.plasmid %>%
+  bind_rows(allcounts) %>%
+  filter(sample == 'library' | compound == 'parental') %>%
+  filter(sample == 'library' | sample == 'CCM1') %>%
+  select(-compound) %>%
+  spread(aa.residue, frac)
+
+?unite
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
