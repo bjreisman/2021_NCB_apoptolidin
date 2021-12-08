@@ -1,5 +1,6 @@
-# Apoptolidin Family Glycomacrolides Target Leukemia Through Inhibition of ATP Synthase
+# Apoptolidin family glycomacrolides target leukemia through inhibition of ATP synthase
 _Reisman, B. J., Guo, H., Ramsey, H. E., Wright, M. T., Reinfeld, B. I., Ferrell, P. B., Sulikowski, G. A., Rathmell, W. K., Savona, M. R., Plate, L., Rubinstein, J. L. & Bachmann, B. O._ **Nature Chemical Biology (2021)**
+doi: [10.1038/s41589-021-00900-9](https://www.nature.com/articles/s41589-021-00900-9)
 ______________
 
 This github repository contains code and raw data to reproduce analysis and figures from our 2021 paper describing the mechanism of action of apopotlidin family glycomacrolides. The repository is organized by figure panel, with extended data figures prefixed with "ED." Some scripts and datasets were used to generate multiple panels across more than one figure and are named accordingly. All analyses were run using R version 4.0.4 on Windows 10 and additional information about package versions can be found in the Reporting summary that accompanies the manuscript. 
